@@ -1,0 +1,120 @@
+---
+title: "Populatio Frontier"
+author: "Critiane Rocha"
+date: "2/4/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE}
+library(VariantAnnotation)
+library(ggplot2)
+library(pheatmap)
+library(RColorBrewer)
+
+```
+
+Read vcf from BIPMED and 1KG Project
+
+AF - Allele Frequency on BIPMed_WES for each ALT allele
+AC - Allele Count on BIPMed_WES
+AN - Allele Number on BIPMed_WES
+CLNSIG - Clinical significanse annotated with Clinvar
+
+```{r read_vcfs, cahe=TRUE}
+#Bipmed
+scanVcfParam <- ScanVcfParam(info = c("AF","AC","AN", "DP","CLNSIG"), geno = NA)
+vcf <- readVcf("bipmed_ann_hg19.vcf.gz", genome = "hg19", param = scanVcfParam)
+vcf.expanded <- expand(vcf, row.names=TRUE)
+
+seqlevels(vcf.expanded)<- sub('chr','',seqlevels(vcf.expanded))
+
+totalVariants = dim(vcf.expanded)[1]
+
+#filter remove variants with more than 20% missing data
+AN <- info(vcf.expanded)$AN >= 413
+vcf.AN <- vcf.expanded[AN]
+sum(AN)
+vcf.expanded <- vcf.AN
+
+
+#1KGenome
+scanVcfParam <- ScanVcfParam(info = c("EAS_AF", "EUR_AF", "AFR_AF", "AMR_AF", "SAS_AF"), geno = NA)
+vcf.1kG <- readVcf("1000G.phase3.vcf.gz", genome = "hg19", param = scanVcfParam)
+vcf.1kG.expand <- expand(vcf.1kG)
+seqlevels(vcf.1kG.expand)<- sub('chr','',seqlevels(vcf.1kG.expand))
+
+
+```
+
+Find Overlap
+
+```{r find_overlaps, cahe=TRUE}
+vcf_OL_1KG <- findOverlaps(vcf.expanded, vcf.1kG.expand, type = "equal", ignore.strand = T)
+vcf.intersect <- vcf.expanded[queryHits(vcf_OL_1KG)]
+vcf.1kG.intersect <- vcf.1kG.expand[subjectHits(vcf_OL_1KG)]
+
+BM_AF <- unlist(info(vcf.intersect)$AF) #Bipmed Alelle Frequency
+
+EAS_AF <- unlist(info(vcf.1kG.intersect)$EAS_AF)
+EUR_AF <- unlist(info(vcf.1kG.intersect)$EUR_AF)
+AFR_AF <- unlist(info(vcf.1kG.intersect)$AFR_AF)
+AMR_AF <- unlist(info(vcf.1kG.intersect)$AMR_AF)
+SAS_AF <- unlist(info(vcf.1kG.intersect)$SAS_AF)
+
+Pop_AF_1KG <- cbind(BM_AF, EAS_AF, EUR_AF, AFR_AF, AMR_AF, SAS_AF)
+colnames(Pop_AF_1KG) <- c("BIPMed", "EAS", "EUR", "AFR", "AMR", "SAS")
+rownames(Pop_AF_1KG) <- names(vcf.1kG.intersect)
+
+```
+
+How many Pathogenic variants?
+
+```{r echo=FALSE}
+sum(unlist(info(CV.vcf.intersect)$CLNSIG == "Pathogenic"))
+```
+
+How many Likely pathogenic?
+
+```{r echo=FALSE}
+sum(unlist(info(CV.vcf.intersect)$CLNSIG == "Likely_pathogenic"))
+```
+
+Heatmap With distance dendrogram
+```{r Distance_Heatmap}
+sampleDists <- dist(t(Pop_AF))
+sampleDistMatrix <- as.matrix(sampleDists)
+colnames(sampleDistMatrix) <- c("BIPMed", "EAS", "EUR", "AFR", "AMR", "SAS")
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+heatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors)
+ggsave("heat_Map_dist_population_WES_1KG.png")
+
+```
+
+Read expanded BIPMed vcf file and plot some info
+
+```{r}
+qplot(info(vcf.expanded)$AF, geom="histogram", binwidth = 0.005,
+      main = "Histogram of Allele Frequency", xlab = "Allele Frequency", fill=I("blue"))
+  
+qplot(info(vcf.expanded)$AC, geom="histogram", binwidth = 2,
+      main = "Histogram of Allele Count", xlab = "Allele Count",fill=I("blue")) 
+
+qplot(info(vcf.expanded)$AN, geom="histogram", binwidth = 2,
+      main = "Histogram of Called Genotypes", xlab = "Called Genotypes",fill=I("blue")) 
+
+average.DP = info(vcf.expanded)$DP / (info(vcf.expanded)$AN/2)
+qplot(log10(average.DP), geom="histogram", 
+      binwidth = 0.02, main = "", xlab = "log10 Average Coverage", fill=I("blue"))  
+
+
+```
+
+

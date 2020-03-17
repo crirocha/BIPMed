@@ -1,0 +1,219 @@
+---
+title: "Untitled"
+author: "Critiane Rocha"
+date: "2/17/2019"
+output: ''
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE}
+library(VariantAnnotation)
+library(ggplot2)
+library(pheatmap)
+library(RColorBrewer)
+library(ggfortify)
+```
+
+Load BIPMed and 1KGenome vcfs
+```{r read_vcfs, cahe=TRUE}
+#ARRAY
+scanVcfParamSNP <- ScanVcfParam(info = c("AF"), geno = NA)
+vcf.SNP <- readVcf("BIPMED_SNP_ARRAY_hg19.vcf", genome = "hg19")
+
+seqlevels(vcf.SNP)<- sub('chr','',seqlevels(vcf.SNP))
+
+##WES
+scanVcfParam <- ScanVcfParam(info = c("AF","AC","AN", "DP","CLNSIG"), geno = NA)
+vcf <- readVcf("bipmed_ann_hg19.vcf.gz", genome = "hg19", param = scanVcfParam)
+vcf.expanded <- expand(vcf, row.names=TRUE)
+seqlevels(vcf.expanded)<- sub('chr','',seqlevels(vcf.expanded))
+#Filter variants according to Called Genotypes, 106 means at least 50% of samples have colling
+AN <- info(vcf.expanded)$AN >= 413
+vcf.AN <- vcf.expanded[AN]
+sum(AN)
+vcf.expanded <- vcf.AN
+
+##1KG
+scanVcfParam <- ScanVcfParam(info = c("EAS_AF", "EUR_AF", "AFR_AF", "AMR_AF", "SAS_AF"), geno = NA)
+vcf.1kG <- readVcf("1000G.phase3.vcf.gz", genome = "hg19", param = scanVcfParam)
+vcf.1kG.expand <- expand(vcf.1kG)
+seqlevels(vcf.1kG.expand)<- sub('chr','',seqlevels(vcf.1kG.expand))
+```
+
+Find overlaps
+
+```{r find_overlaps, cahe=TRUE}
+#Ovelap SNP 1KG
+SNP_1KG_overlap <- findOverlaps(vcf.SNP.cut, vcf.1kG.expand, type = "equal", ignore.strand = T)
+vcf.SNP_1KG_overlap <- vcf.SNP.cut[queryHits(SNP_1KG_overlap)]
+vcf.1KG_overlap <- vcf.1kG.expand[subjectHits(SNP_1KG_overlap)]
+
+##Frequency
+
+BM_AF <- unlist(info(vcf.SNP_1KG_overlap)$AF)
+EAS_AF <- unlist(info(vcf.1KG_overlap)$EAS_AF)
+EUR_AF <- unlist(info(vcf.1KG_overlap)$EUR_AF)
+AFR_AF <- unlist(info(vcf.1KG_overlap)$AFR_AF)
+AMR_AF <- unlist(info(vcf.1KG_overlap)$AMR_AF)
+SAS_AF <- unlist(info(vcf.1KG_overlap)$SAS_AF)
+
+Pop_AF_SNP <- cbind(BM_AF, EAS_AF, EUR_AF, AFR_AF, AMR_AF, SAS_AF)
+
+colnames(Pop_AF_SNP) <- c("BIPMed", "EAS", "EUR", "AFR", "AMR", "SAS")
+rownames(Pop_AF_SNP) <- names(vcf.SNP_1KG_overlap)
+
+ref <- as.vector(as.character(ref(vcf.SNP_1KG_overlap)))
+alt <- as.vector(as.character(alt(expand(vcf.SNP_1KG_overlap))))
+
+variants <- cbind(as.character(seqnames(vcf.SNP_1KG_overlap)), start(vcf.SNP_1KG_overlap), ref, alt, Pop_AF_SNP)
+
+colnames(variants) <- c("Chr","Position", "Reference", "Alternative", "BIPMed", "EAS", "EUR", "AFR", "AMR", "SAS")
+rownames(variants)<- names(vcf.SNP_1KG_overlap)
+
+#ovrlap WES 1KG
+WES_1KG_overlap <- findOverlaps(vcf.expanded, vcf.1kG.expand, type = "equal", ignore.strand = T)
+vcf.WES_1KG_overlap <- vcf.expanded[queryHits(WES_1KG_overlap)]
+vcf.1KG_overlap_WES <- vcf.1kG.expand[subjectHits(WES_1KG_overlap)]
+
+
+#Frequency 
+BM_AF_WES <- unlist(info(vcf.WES_1KG_overlap)$AF)
+EAS_AF_WES <- unlist(info(vcf.1KG_overlap_WES)$EAS_AF)
+EUR_AF_WES <- unlist(info(vcf.1KG_overlap_WES)$EUR_AF)
+AFR_AF_WES <- unlist(info(vcf.1KG_overlap_WES)$AFR_AF)
+AMR_AF_WES <- unlist(info(vcf.1KG_overlap_WES)$AMR_AF)
+SAS_AF_WES <- unlist(info(vcf.1KG_overlap_WES)$SAS_AF)
+
+Pop_AF_WES <- cbind(BM_AF_WES, EAS_AF_WES, EUR_AF_WES, AFR_AF_WES, AMR_AF_WES, SAS_AF_WES)
+colnames(Pop_AF_WES) <- c("BIPMed", "EAS", "EUR", "AFR", "AMR", "SAS")
+rownames(Pop_AF_WES) <- names(vcf.WES_1KG_overlap)
+
+ref <- as.vector(as.character(ref(vcf.WES_1KG_overlap)))
+alt <- as.vector(as.character(alt(expand(vcf.WES_1KG_overlap))))
+
+variants_WES <- cbind(as.character(seqnames(vcf.WES_1KG_overlap)), start(vcf.WES_1KG_overlap), ref, alt, Pop_AF_WES)
+
+colnames(variants_WES) <- c("Chr","Position", "Reference", "Alternative", "BIPMed", "EAS", "EUR", "AFR", "AMR", "SAS")
+rownames(variants_WES)<- names(vcf.WES_1KG_overlap)
+
+#Overlap WES & SNP
+BIPMed_overlap <- findOverlaps(vcf.expanded, vcf.SNP.cut, type = "equal", ignore.strand = T)
+vcf.BM.overlap_WES <- vcf.expanded[queryHits(BIPMed_overlap)]
+vcf.BM.overlap_SNP <- vcf.SNP.cut[subjectHits(BIPMed_overlap)]
+
+library(VennDiagram)
+WES <- names(vcf.expanded)
+SNP <- names(vcf.SNP.cut)
+
+venn.plot <- draw.pairwise.venn(844067, 902939, 25492, category = c("WES", "SNP array"), lty = rep("blank", 2), fill = c("blue", "green"), alpha = rep(0.5, 2), cat.pos = c(0, 0), cat.dist = rep(0.025, 2), scaled = T)
+tiff(filename = "Variants_venn.tiff", width = 2000, height = 1550, res = 400)
+grid.draw(venn.plot)
+dev.off()
+
+
+venn.plot <- draw.pairwise.venn(257, 340, 239, category = c("WES", "SNP array"), lty = rep("blank", 2), fill = c("blue", "green"), alpha = rep(0.5, 2), cat.pos = c(0, 0), cat.dist = rep(0.025, 2), scaled = T)
+tiff(filename = "Samples_venn.tiff", width = 2000, height = 1550, res = 400)
+grid.draw(venn.plot)
+dev.off()
+
+```
+
+
+Heatmap With distance dendrogram
+```{r Distance_Heatmap}
+library(ggcorrplot)
+
+corr <- cor(Pop_MAF_SNP, method = "pearson")
+
+tiff(filename = "SNP_array_corr.tiff", width = 2000, height = 2000, res = 400)
+ggcorrplot(corr, hc.order = TRUE, type = "lower", lab = TRUE, title="(B)          BIPMed SNP array correlation with 1KGP")
+dev.off()
+
+corr <- cor(Pop_MAF_WES, method = "pearson")
+tiff(filename = "WES_corr.tiff", width = 2000, height = 2000, res = 400)
+ggcorrplot(corr, hc.order = TRUE, type = "lower", lab = TRUE, title="(A)          BIPMed WES correlation with 1KGP")
+dev.off()
+
+```
+
+
+Selec frequence oposites SNP
+```{r}
+dif.EAS = BM_AF - EAS_AF
+dif.EUR = BM_AF - EUR_AF
+dif.AFR = BM_AF - AFR_AF
+dif.AMR = BM_AF - AMR_AF
+dif.SAS = BM_AF - SAS_AF
+
+pos.EAS = which(dif.EAS > 0.95)
+pos.EUR = which(dif.EUR > 0.95)
+pos.AFR = which(dif.AFR > 0.95)
+pos.AMR = which(dif.AMR > 0.95)
+pos.SAS = which(dif.SAS > 0.95)
+
+common_pos <- Reduce(intersect, list(pos.EAS, pos.EUR, pos.AFR, pos.AMR, pos.SAS))
+
+vcf.SNP.diff <- vcf.SNP_1KG_overlap[common_pos]
+
+writeVcf(vcf.SNP.diff, "VCF.SNP.positive_diff.vcf", index=T)
+
+write.table(variants[common_pos,], file = "SNP_heigh_frequency.table.txt", sep = "\t")
+
+neg.EAS = which(dif.EAS < -0.95)
+neg.EUR = which(dif.EUR < -0.95)
+neg.AFR = which(dif.AFR < -0.95)
+neg.AMR = which(dif.AMR < -0.95)
+neg.SAS = which(dif.SAS < -0.95)
+
+common_neg <- Reduce(intersect, list(neg.EAS, neg.EUR, neg.AFR, neg.AMR, neg.SAS))
+
+vcf.SNP.diff <- vcf.SNP_1KG_overlap[common_neg]
+
+writeVcf(vcf.SNP.diff, "VCF.SNP.negative_diff.vcf", index=T)
+
+write.table(variants[common_neg,], file = "SNP_rare_frequency.table.txt", sep = "\t")
+
+```
+
+
+Selec frequence oposites WES
+```{r}
+dif.EAS = BM_AF_WES - EAS_AF_WES
+dif.EUR = BM_AF_WES - EUR_AF_WES
+dif.AFR = BM_AF_WES - AFR_AF_WES
+dif.AMR = BM_AF_WES - AMR_AF_WES
+dif.SAS = BM_AF_WES - SAS_AF_WES
+
+pos.EAS = which(dif.EAS > 0.95)
+pos.EUR = which(dif.EUR > 0.95)
+pos.AFR = which(dif.AFR > 0.95)
+pos.AMR = which(dif.AMR > 0.95)
+pos.SAS = which(dif.SAS > 0.95)
+
+common_pos <- Reduce(intersect, list(pos.EAS, pos.EUR, pos.AFR, pos.AMR, pos.SAS))
+
+vcf.WES.diff <- vcf.expanded[common_pos]
+
+writeVcf(vcf.WES.diff, "VCF.WES.positive_diff.vcf", index=T)
+
+write.table(variants_WES[common_pos,], file = "WES_heigh_frequency.table.txt", sep = "\t")
+
+neg.EAS = which(dif.EAS < -0.95)
+neg.EUR = which(dif.EUR < -0.95)
+neg.AFR = which(dif.AFR < -0.95)
+neg.AMR = which(dif.AMR < -0.95)
+neg.SAS = which(dif.SAS < -0.95)
+
+common_neg <- Reduce(intersect, list(neg.EAS, neg.EUR, neg.AFR, neg.AMR, neg.SAS))
+
+vcf.WES.diff <- vcf.expanded[common_neg]
+
+writeVcf(vcf.WES.diff, "VCF.WES.negative_diff.vcf", index=T)
+
+write.table(variants_WES[common_neg,], file = "WES_rare_frequency.table.txt", sep = "\t")
+
+```
+

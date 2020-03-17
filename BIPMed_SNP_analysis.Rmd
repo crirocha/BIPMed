@@ -1,0 +1,88 @@
+---
+title: "Population SNP"
+author: "Critiane Rocha"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE}
+library(VariantAnnotation)
+library(ggplot2)
+library(pheatmap)
+library(RColorBrewer)
+library(ggfortify)
+```
+
+Read vcf from BIPMed and 1KGenomes
+
+EAS_AF - Allele frequency in the EAS populations calculated from AC and AN, in the range (0,1)
+EUR_AF - Allele frequency in the EUR populations calculated from AC and AN, in the range (0,1)
+AFR_AF - Allele frequency in the AFR populations calculated from AC and AN, in the range (0,1)
+AMR_AF - Allele frequency in the AMR populations calculated from AC and AN, in the range (0,1)
+SAS_AF - Allele frequency in the SAS populations calculated from AC and AN, in the range (0,1)
+
+```{r read_vcfs, cahe=TRUE}
+scanVcfParamSNP <- ScanVcfParam(info = c("AF"), geno = NA)
+vcf <- readVcf("BIPMED_SNP_ARRAY_hg19.vcf", genome = "hg19")
+vcf.expand = expand(vcf)
+
+names.BIPMed <- names(vcf.expand)
+
+vcf.1kG <- readVcf("1000G.phase3.vcf.gz", genome = "hg19", param = scanVcfParam)
+vcf.1kG.expand <- expand(vcf.1kG)
+
+names.1KG <- names(vcf.1kG)
+
+```
+
+Find Overlap
+
+```{r find_overlaps, cahe=TRUE}
+
+x = findOverlaps(vcf.expand, vcf.1kG.expand, type = "equal", ignore.strand = F)
+vcf.BM.intersect <- vcf[queryHits(x)]
+vcf.1KG.intersect <- vcf.1kG.expand[subjectHits(x)]
+
+
+AF.BIPMed <- unlist(info(vcf.BM.intersect)$AF)
+AF.EAS <- unlist(info(vcf.1KG.intersect)$EAS_AF)
+AF.EUR <- unlist(info(vcf.1KG.intersect)$EUR_AF)
+AF.AFR <- unlist(info(vcf.1KG.intersect)$AFR_AF)
+AF.AMR <- unlist(info(vcf.1KG.intersect)$AMR_AF)
+AF.SAS <- unlist(info(vcf.1KG.intersect)$SAS_AF)
+
+qplot(AF.BIPMed, geom="histogram", binwidth = 0.005,
+      main = "Histogram of BIPMed Alternative Allele Frequency", xlab = "Allele Frequency", fill=I("blue"))
+qplot(AF.EAS, geom="histogram", binwidth = 0.005,
+      main = "Histogram of Allele Frequency EAS 1kG", xlab = "Allele Frequency", fill=I("blue"))
+qplot(AF.EUR, geom="histogram", binwidth = 0.005,
+      main = "Histogram of Allele Frequency EUR 1kG", xlab = "Allele Frequency", fill=I("blue"))
+qplot(AF.AFR, geom="histogram", binwidth = 0.005,
+      main = "Histogram of Allele Frequency AFR 1kG", xlab = "Allele Frequency", fill=I("blue"))
+qplot(AF.AMR, geom="histogram", binwidth = 0.005,
+      main = "Histogram of Allele Frequency AMR 1kG", xlab = "Allele Frequency", fill=I("blue"))
+qplot(AF.SAS, geom="histogram", binwidth = 0.005,
+      main = "Histogram of Allele Frequency SAS 1kG", xlab = "Allele Frequency", fill=I("blue"))
+
+
+
+```
+
+
+Heatmap With distance dendrogram
+```{r Distance_Heatmap}
+
+sampleDists <- dist(t(mat2))
+sampleDistMatrix <- as.matrix(sampleDists)
+colnames(sampleDistMatrix) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+heatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors)
+ggsave("heat_Map_dist_population_SNP_1KG_hg19.png")
+```
